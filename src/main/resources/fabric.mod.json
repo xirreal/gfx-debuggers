@@ -1,26 +1,22 @@
 {
-	"schemaVersion": 1,
-	"id": "nsight-loader",
-	"version": "${version}",
-	"name": "nsight-loader",
-	"description": "Inject NSight into Minecraft, so you dont have to rely on tricks to launch it.",
-	"authors": [
-		"xirreal"
-	],
-	"contact": {
-		"sources": "https://github.com/xirreal/nsight-loader"
-	},
-	"license": "MIT & NVIDIA license",
-	"icon": "assets/nsight-loader/icon.png",
-	"environment": "*",
-	"entrypoints": {
-		"main": [
-          "dev.xirreal.Main"
-		]
-	},
-	"depends": {
-		"fabricloader": ">=0.15.0",
-		"minecraft": "^1.18.2",
-		"java": ">=17"
-	}
+   "schemaVersion": 1,
+   "id": "gfx-debuggers",
+   "version": "${version}",
+   "name": "gfx-debuggers",
+   "description": "Helps you inject graphics debuggers (NSight and Renderdoc) into Minecraft, without fiddling with launchers or JVM arguments.",
+   "authors": ["xirreal"],
+   "contact": {
+      "sources": "https://github.com/xirreal/gfx-debuggers"
+   },
+   "license": "MIT",
+   "icon": "assets/gfx-debuggers/icon.png",
+   "environment": "*",
+   "entrypoints": {
+      "preLaunch": ["dev.xirreal.GfxDebuggers"]
+   },
+   "depends": {
+      "fabricloader": ">=0.15.0",
+      "minecraft": "^1.18.2",
+      "java": ">=17"
+   }
 }
