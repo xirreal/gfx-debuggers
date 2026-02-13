@@ -8,8 +8,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class PlatformUtils {
 
@@ -83,7 +87,7 @@ public class PlatformUtils {
 
          GfxDebuggers.LOGGER.info("Re-executing process with LD_PRELOAD={}", newPreload);
          GfxDebuggers.LOGGER.info("Executable: {}", exe);
-         GfxDebuggers.LOGGER.info("Arguments: {}", args);
+         GfxDebuggers.LOGGER.info("Arguments: {}", censorArgList(args));
 
          StringArray argv = new StringArray(args.toArray(new String[0]));
          LibC.INSTANCE.execv(exe, argv);
@@ -188,6 +192,26 @@ public class PlatformUtils {
       if (arg.isEmpty()) return "''";
       if (arg.matches("[a-zA-Z0-9._/=:@%,+-]+")) return arg;
       return "'" + arg.replace("'", "'\\''") + "'";
+   }
+
+   private static final Set<String> SENSITIVE_ARGS = new HashSet<>(Arrays.asList("--accessToken", "--uuid", "--username", "--xuid", "--clientId"));
+
+   public static String censorArgList(List<String> args) {
+      return args
+         .stream()
+         .map(arg -> {
+            for (String sensitive : SENSITIVE_ARGS) {
+               if (arg.startsWith(sensitive + "=")) {
+                  return sensitive + "=<censored>";
+               }
+               if (arg.startsWith(sensitive + " ")) {
+                  return sensitive + " <censored>";
+               }
+            }
+            return arg;
+         })
+         .collect(Collectors.toList())
+         .toString();
    }
 
    public static String stripExeFromCommandLine(String cmdLine) {

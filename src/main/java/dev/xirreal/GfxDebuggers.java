@@ -184,11 +184,12 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       cmd.add("--platform=" + platform);
       cmd.add("--exe=" + exe);
 
+      Path argFile = null;
       try {
          List<String> rawArgs = readCurrentArgsList();
          if (!rawArgs.isEmpty()) {
             List<String> javaArgs = filterJavaArgs(rawArgs);
-            Path argFile = writeArgFile(javaArgs);
+            argFile = writeArgFile(javaArgs);
             LOGGER.info("Wrote {} args to argfile: {}", javaArgs.size(), argFile);
             cmd.add("--args=@" + argFile.toAbsolutePath());
          }
@@ -216,7 +217,7 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
          cmd.add("--start-after-hotkey");
       }
 
-      LOGGER.info("Running ngfx: {}", cmd);
+      LOGGER.info("Running ngfx: {}", censorArgList(cmd));
 
       try {
          ProcessBuilder pb = new ProcessBuilder(cmd);
@@ -237,6 +238,15 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
          if (exitCode != 0) {
             LOGGER.error("ngfx exited with code {}. Check that NSight Graphics is installed correctly.", exitCode);
             return;
+         }
+
+         if (argFile != null) {
+            try {
+               Files.deleteIfExists(argFile);
+               LOGGER.info("Cleaned up argfile: {}", argFile);
+            } catch (IOException e) {
+               LOGGER.warn("Failed to clean up argfile: {}", argFile, e);
+            }
          }
 
          LOGGER.info("Game re-launched via ngfx (exit code 0). Terminating current process.");
