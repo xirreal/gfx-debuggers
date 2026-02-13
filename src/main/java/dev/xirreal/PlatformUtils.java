@@ -5,6 +5,7 @@ import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.StringArray;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -13,7 +14,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class PlatformUtils {
 
@@ -48,13 +48,13 @@ public class PlatformUtils {
       for (int i = 0; i < cmdlineBytes.length; i++) {
          if (cmdlineBytes[i] == 0) {
             if (i > start) {
-               args.add(new String(cmdlineBytes, start, i - start));
+               args.add(new String(cmdlineBytes, start, i - start, StandardCharsets.UTF_8));
             }
             start = i + 1;
          }
       }
       if (start < cmdlineBytes.length) {
-         args.add(new String(cmdlineBytes, start, cmdlineBytes.length - start));
+         args.add(new String(cmdlineBytes, start, cmdlineBytes.length - start, StandardCharsets.UTF_8));
       }
       return args;
    }
@@ -197,21 +197,33 @@ public class PlatformUtils {
    private static final Set<String> SENSITIVE_ARGS = new HashSet<>(Arrays.asList("--accessToken", "--uuid", "--username", "--xuid", "--clientId"));
 
    public static String censorArgList(List<String> args) {
-      return args
-         .stream()
-         .map(arg -> {
-            for (String sensitive : SENSITIVE_ARGS) {
-               if (arg.startsWith(sensitive + "=")) {
-                  return sensitive + "=<censored>";
-               }
-               if (arg.startsWith(sensitive + " ")) {
-                  return sensitive + " <censored>";
-               }
+      List<String> censored = new ArrayList<>(args.size());
+      boolean censorNext = false;
+      for (String arg : args) {
+         if (censorNext) {
+            censored.add("<censored>");
+            censorNext = false;
+            continue;
+         }
+         boolean handled = false;
+         for (String sensitive : SENSITIVE_ARGS) {
+            if (arg.startsWith(sensitive + "=")) {
+               censored.add(sensitive + "=<censored>");
+               handled = true;
+               break;
             }
-            return arg;
-         })
-         .collect(Collectors.toList())
-         .toString();
+            if (arg.equals(sensitive)) {
+               censored.add(arg);
+               censorNext = true;
+               handled = true;
+               break;
+            }
+         }
+         if (!handled) {
+            censored.add(arg);
+         }
+      }
+      return censored.toString();
    }
 
    public static String stripExeFromCommandLine(String cmdLine) {

@@ -43,7 +43,7 @@ public final class RenderdocLocator {
       }
 
       String envPath = System.getenv("RENDERDOC_LIB_PATH");
-      if (envPath != null && new File(envPath).exists()) {
+      if (envPath != null && new File(envPath).isFile()) {
          return envPath;
       }
 

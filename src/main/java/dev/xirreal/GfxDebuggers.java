@@ -30,12 +30,12 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
    @Override
    public void onPreLaunch() {
       if (!IS_WINDOWS && !IS_LINUX) {
-         LOGGER.error("Unsupported OS: " + System.getProperty("os.name"));
+         LOGGER.error("Unsupported OS: {}", System.getProperty("os.name"));
          return;
       }
       String arch = System.getProperty("os.arch").toLowerCase();
       if (!arch.contains("64")) {
-         LOGGER.error("Unsupported architecture: " + arch);
+         LOGGER.error("Unsupported architecture: {}", arch);
          return;
       }
 
@@ -240,6 +240,14 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
             return;
          }
 
+         LOGGER.info("Game re-launched via ngfx (exit code 0). Terminating current process.");
+         System.exit(0);
+      } catch (IOException e) {
+         LOGGER.error("Failed to run ngfx: ", e);
+      } catch (InterruptedException e) {
+         Thread.currentThread().interrupt();
+         LOGGER.error("Interrupted while waiting for ngfx: ", e);
+      } finally {
          if (argFile != null) {
             try {
                Files.deleteIfExists(argFile);
@@ -248,18 +256,10 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
                LOGGER.warn("Failed to clean up argfile: {}", argFile, e);
             }
          }
-
-         LOGGER.info("Game re-launched via ngfx (exit code 0). Terminating current process.");
-         System.exit(0);
-      } catch (IOException e) {
-         LOGGER.error("Failed to run ngfx: ", e);
-      } catch (InterruptedException e) {
-         Thread.currentThread().interrupt();
-         LOGGER.error("Interrupted while waiting for ngfx: ", e);
       }
    }
 
-   private static List<String> filterJavaArgs(List<String> args) {
+   static List<String> filterJavaArgs(List<String> args) {
       List<String> filtered = new ArrayList<>();
       for (int i = 0; i < args.size(); i++) {
          String arg = args.get(i);
@@ -297,7 +297,7 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       return filtered;
    }
 
-   private static Path writeArgFile(List<String> args) throws IOException {
+   static Path writeArgFile(List<String> args) throws IOException {
       Path argFile = Files.createTempFile("gfx-debuggers-", ".args");
       try (BufferedWriter writer = Files.newBufferedWriter(argFile)) {
          for (String arg : args) {
@@ -308,7 +308,7 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       return argFile;
    }
 
-   private static String quoteForArgFile(String arg) {
+   static String quoteForArgFile(String arg) {
       if (arg.isEmpty()) {
          return "\"\"";
       }
@@ -336,7 +336,7 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       return sb.toString();
    }
 
-   private static String stripTheseusFromArgsString(String argsString) {
+   static String stripTheseusFromArgsString(String argsString) {
       argsString = argsString.replaceAll("-javaagent:[^\\s]+theseus\\.jar", "");
       argsString = argsString.replaceAll("com\\.modrinth\\.theseus\\.MinecraftLaunch", "");
       argsString = argsString.replaceAll("-Dmodrinth\\.internal\\.[^\\s]+", "");
