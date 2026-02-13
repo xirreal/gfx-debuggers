@@ -1,21 +1,22 @@
 package dev.xirreal;
 
+import static dev.xirreal.DebuggerPicker.DebuggerSelection;
 import static dev.xirreal.PlatformUtils.*;
 
+import java.awt.*;
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 import javax.swing.*;
+import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.entrypoint.PreLaunchEntrypoint;
+import org.lwjgl.util.tinyfd.TinyFileDialogs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,79 +40,95 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
          return;
       }
 
-      String renderdocMarker = System.getenv(RENDERDOC_MARKER_ENV);
-      if ("1".equals(renderdocMarker)) {
-         LOGGER.info("Game was re-launched with RenderDoc LD_PRELOAD marker. Checking for library...");
-         if (IS_LINUX && isLibraryLoaded("librenderdoc")) {
-            LOGGER.info("Renderdoc injection successful.");
-         } else if (IS_LINUX) {
-            LOGGER.warn("Renderdoc marker found but library not loaded. Injection failed.");
+      if (System.getenv(RENDERDOC_MARKER_ENV) != null) {
+         LOGGER.info("Process relaunched with Renderdoc marker. Checking if library is loaded...");
+         if (isLibraryLoaded("librenderdoc")) {
+            LOGGER.info("Renderdoc library is loaded. Continuing with normal launch.");
+         } else {
+            LOGGER.error("Renderdoc marker environment variable is set but library is not loaded. Something went wrong with the injection.");
+            throw new IllegalStateException("Renderdoc injection failed");
          }
          return;
-      }
-
-      String nsightMarker = System.getenv(NSIGHT_MARKER_ENV);
-      if ("1".equals(nsightMarker)) {
-         LOGGER.info("Game was launched via ngfx. NSight Graphics injection is active.");
+      } else if (System.getenv(NSIGHT_MARKER_ENV) != null) {
+         LOGGER.info("Process relaunched with NSight Graphics marker. Continuing with normal launch.");
          return;
       }
 
-      int option = -1;
+      ProcessHandle processHandle = ProcessHandle.current();
+      String javaExecutable = processHandle.info().command().orElse("java");
+      List<String> jvmArgs = ManagementFactory.getRuntimeMXBean().getInputArguments();
+
+      List<String> fullArgs = new ArrayList<>();
+      fullArgs.addAll(jvmArgs);
+      if (System.getProperty("java.library.path") != null) {
+         fullArgs.add("-Djava.library.path=" + System.getProperty("java.library.path"));
+      }
+      fullArgs.add("-cp");
+      fullArgs.add(System.getProperty("java.class.path"));
+
+      // Bypass launcher shims and launch fabric directly as god intended
+      fullArgs.add("net.fabricmc.loader.impl.launch.knot.KnotClient");
+
+      String[] args = FabricLoader.getInstance().getLaunchArguments(false);
+      fullArgs.addAll(Arrays.asList(args));
+
+      DebuggerSelection choice = DebuggerSelection.NONE;
+
       String optionString = System.getProperty("debugger");
       if (optionString != null) {
          if (optionString.equalsIgnoreCase("renderdoc")) {
-            option = JOptionPane.CANCEL_OPTION;
+            choice = DebuggerSelection.RENDERDOC;
          } else if (optionString.equalsIgnoreCase("nsight-gpu")) {
-            option = JOptionPane.YES_OPTION;
+            choice = DebuggerSelection.GPU_TRACE;
          } else if (optionString.equalsIgnoreCase("nsight-frame")) {
-            option = JOptionPane.NO_OPTION;
+            choice = DebuggerSelection.FRAME_DEBUGGER;
          }
       }
 
-      if (option == -1) {
-         System.setProperty("java.awt.headless", "false");
+      if (choice == DebuggerSelection.NONE) {
+         String originalHeadless = System.getProperty("java.awt.headless");
+         String originalAA = System.getProperty("awt.useSystemAAFontSettings");
+         String originalAAText = System.getProperty("swing.aatext");
 
          try {
-            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-         } catch (ReflectiveOperationException | UnsupportedLookAndFeelException ignored) {}
+            System.setProperty("java.awt.headless", "false");
+            System.setProperty("awt.useSystemAAFontSettings", "on");
+            System.setProperty("swing.aatext", "true");
 
-         String[] options = { "NSight GPU Trace", "NSight Frame Profiler", "Renderdoc" };
-
-         JFrame frame = new JFrame("Choose a debugger to be loaded");
-         frame.setUndecorated(true);
-         frame.setVisible(true);
-         frame.setLocationRelativeTo(null);
-         frame.requestFocus();
-
-         option = JOptionPane.showOptionDialog(
-            frame,
-            "Closing the dialog will skip injection.\n\nNSight or Renderdoc must be installed for this to work properly.",
-            "Shader debugging",
-            JOptionPane.YES_NO_CANCEL_OPTION,
-            JOptionPane.QUESTION_MESSAGE,
-            null,
-            options,
-            null
-         );
-
-         frame.dispose();
-         System.setProperty("java.awt.headless", "true");
+            DebuggerPicker picker = new DebuggerPicker();
+            choice = picker.getSelection();
+         } catch (Exception e) {
+            LOGGER.error("Could not open Swing window. Falling back to command line selection.", e);
+         } finally {
+            if (originalHeadless != null) {
+               System.setProperty("java.awt.headless", originalHeadless);
+            } else {
+               System.clearProperty("java.awt.headless");
+            }
+            if (originalAA != null) {
+               System.setProperty("awt.useSystemAAFontSettings", originalAA);
+            } else {
+               System.clearProperty("awt.useSystemAAFontSettings");
+            }
+            if (originalAAText != null) {
+               System.setProperty("swing.aatext", originalAAText);
+            } else {
+               System.clearProperty("swing.aatext");
+            }
+         }
       }
 
-      if (option == JOptionPane.CLOSED_OPTION) {
-         LOGGER.info("Modal closed, skipping injection...");
+      if (choice == DebuggerSelection.NONE) {
+         LOGGER.warn("Injection skipped! No debugger will be injected and the game will launch normally.");
          return;
+      } else if (choice == DebuggerSelection.RENDERDOC) {
+         launchRenderdoc(javaExecutable, fullArgs);
+      } else {
+         launchViaNgfx(javaExecutable, fullArgs, choice);
       }
-
-      if (option == JOptionPane.CANCEL_OPTION) {
-         injectRenderdoc();
-         return;
-      }
-
-      launchViaNgfx(option);
    }
 
-   private void injectRenderdoc() {
+   private void launchRenderdoc(String javaExecutable, List<String> args) {
       LOGGER.info("Injecting Renderdoc...");
       try {
          if (IS_LINUX) {
@@ -119,7 +136,7 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
             if (renderdocPath == null) {
                LOGGER.error("Renderdoc library not found. Checked standard system paths.");
                LOGGER.error("Set -Drenderdoc.path=<path> or RENDERDOC_PATH env var to your RenderDoc install directory or librenderdoc.so path.");
-               return;
+               throw new IllegalStateException("Renderdoc library not found");
             }
             LOGGER.info("Found Renderdoc at: {}", renderdocPath);
 
@@ -128,32 +145,30 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
                return;
             }
 
-            Map<String, String> env = new HashMap<>();
-            env.put(RENDERDOC_MARKER_ENV, "1");
-
-            if (reExecWithPreload(renderdocPath, env)) {
-               LOGGER.error("Re-exec with LD_PRELOAD failed. RenderDoc cannot be injected.");
-               LOGGER.error("Try launching the game manually with: LD_PRELOAD={} <command>", renderdocPath);
+            if (!relaunchWithExtraLD_PRELOAD(javaExecutable, args, renderdocPath, RENDERDOC_MARKER_ENV)) {
+               LOGGER.error("Re-exec with LD_PRELOAD failed.");
+               LOGGER.error("Try launching the game manually with this environment variable set: LD_PRELOAD={}", renderdocPath);
+               throw new IllegalStateException("Failed to relaunch with Renderdoc");
             }
          } else {
             String renderdocDll = RenderdocLocator.findRenderdocDll();
             if (renderdocDll == null) {
                LOGGER.error("Renderdoc installation not found in common paths.");
                LOGGER.error("Set -Drenderdoc.path=<path> or RENDERDOC_PATH env var to your RenderDoc install directory.");
-               return;
+               throw new IllegalStateException("Renderdoc DLL not found");
             }
-            LOGGER.info("Found Renderdoc installation at: {}", renderdocDll);
+            LOGGER.info("Found Renderdoc shared library at: {}", renderdocDll);
             System.load(renderdocDll);
             LOGGER.info("Renderdoc loaded successfully.");
          }
-      } catch (UnsatisfiedLinkError e) {
-         LOGGER.error("Failed to load Renderdoc: ", e);
+      } catch (Exception e) {
+         LOGGER.error("Failed to launch with Renderdoc: ", e);
+         throw new IllegalStateException("Failed to launch with Renderdoc", e);
       }
    }
 
-   private void launchViaNgfx(int option) {
-      String activity = (option == JOptionPane.YES_OPTION) ? "GPU Trace Profiler" : "Frame Debugger";
-      LOGGER.info("Launching game via ngfx CLI for {}...", activity);
+   private void launchViaNgfx(String exe, List<String> args, DebuggerSelection activity) {
+      LOGGER.info("Launching game via ngfx CLI for {}...", activity.name());
 
       Path ngfx = NgfxLocator.findNgfxExecutable();
       if (ngfx == null) {
@@ -163,60 +178,38 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
          } else {
             LOGGER.error("Expected in: Program Files/NVIDIA Corporation/Nsight Graphics */host/windows-desktop-nomad-x64/ngfx.exe");
          }
-         return;
+         throw new IllegalStateException("ngfx executable not found");
       }
+
       LOGGER.info("Found ngfx at: {}", ngfx);
 
-      String exe;
-      try {
-         exe = getCurrentExe();
-      } catch (IOException e) {
-         LOGGER.error("Failed to read current process exe: ", e);
-         return;
-      }
-
       String workDir = System.getProperty("user.dir");
-      String platform = IS_LINUX ? "Linux (x86_64)" : "Windows";
 
       List<String> cmd = new ArrayList<>();
       cmd.add(ngfx.toAbsolutePath().toString());
-      cmd.add("--activity=" + activity);
-      cmd.add("--platform=" + platform);
+      cmd.add("--activity=" + (activity == DebuggerSelection.GPU_TRACE ? "GPU Trace Profiler" : "Frame Debugger"));
       cmd.add("--exe=" + exe);
 
+      Path argFile = null;
       try {
-         List<String> rawArgs = readCurrentArgsList();
-         if (!rawArgs.isEmpty()) {
-            List<String> javaArgs = filterJavaArgs(rawArgs);
-            Path argFile = writeArgFile(javaArgs);
-            LOGGER.info("Wrote {} args to argfile: {}", javaArgs.size(), argFile);
-            cmd.add("--args=@" + argFile.toAbsolutePath());
-         }
-      } catch (IOException e) {
-         LOGGER.error("Failed to create argfile, falling back to inline args", e);
-         try {
-            String argsString = getCurrentArgsString();
-            argsString = stripTheseusFromArgsString(argsString);
-            if (!argsString.isEmpty()) {
-               if (IS_WINDOWS) {
-                  argsString = argsString.replace("\"", "\\\"");
-               }
-               cmd.add("--args=" + argsString);
-            }
-         } catch (IOException e2) {
-            LOGGER.error("Failed to read current args: ", e2);
-            return;
-         }
+         argFile = writeArgFile(args);
+         cmd.add("--args=@" + argFile.toAbsolutePath());
+      } catch (Exception e) {
+         LOGGER.error("Failed to create argfile for ngfx: ", e);
+         throw new IllegalStateException("Failed to create argfile for ngfx", e);
       }
 
       cmd.add("--dir=" + workDir);
-      cmd.add("--env=" + NSIGHT_MARKER_ENV + "=1;");
+      cmd.add("--env=" + NSIGHT_MARKER_ENV + "=1");
       cmd.add("--launch-detached");
-      if (activity.equals("GPU Trace Profiler")) {
+      if (activity == DebuggerSelection.GPU_TRACE) {
+         cmd.add("--limit-to-frames");
+         cmd.add("5");
+         cmd.add("--multi-pass-metrics");
          cmd.add("--start-after-hotkey");
       }
 
-      LOGGER.info("Running ngfx: {}", cmd);
+      LOGGER.info("Running ngfx with command: {}", String.join(" ", cmd));
 
       try {
          ProcessBuilder pb = new ProcessBuilder(cmd);
@@ -236,104 +229,29 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
 
          if (exitCode != 0) {
             LOGGER.error("ngfx exited with code {}. Check that NSight Graphics is installed correctly.", exitCode);
-            return;
+            throw new IllegalStateException("ngfx exited with code " + exitCode);
          }
 
          LOGGER.info("Game re-launched via ngfx (exit code 0). Terminating current process.");
          System.exit(0);
       } catch (IOException e) {
          LOGGER.error("Failed to run ngfx: ", e);
+         throw new IllegalStateException("Failed to run ngfx", e);
       } catch (InterruptedException e) {
          Thread.currentThread().interrupt();
          LOGGER.error("Interrupted while waiting for ngfx: ", e);
-      }
-   }
-
-   private static List<String> filterJavaArgs(List<String> args) {
-      List<String> filtered = new ArrayList<>();
-      for (int i = 0; i < args.size(); i++) {
-         String arg = args.get(i);
-
-         if (arg.matches("-javaagent:.*theseus\\.jar.*")) {
-            LOGGER.info("Stripping theseus javaagent: {}", arg);
-            continue;
-         }
-         if (arg.equals("com.modrinth.theseus.MinecraftLaunch")) {
-            LOGGER.info("Stripping theseus main class");
-            continue;
-         }
-         if (arg.startsWith("-Dmodrinth.internal.")) {
-            LOGGER.info("Stripping Modrinth property: {}", arg);
-            continue;
-         }
-
-         if ((arg.equals("-cp") || arg.equals("-classpath")) && i + 1 < args.size()) {
-            filtered.add(arg);
-            i++;
-            String cp = args.get(i);
-            String separator = IS_WINDOWS ? ";" : ":";
-            String cleaned = Arrays.stream(cp.split(IS_WINDOWS ? ";" : ":"))
-               .filter(entry -> !entry.contains("theseus.jar"))
-               .collect(Collectors.joining(separator));
-            if (!cleaned.equals(cp)) {
-               LOGGER.info("Stripped theseus.jar from classpath");
+         throw new IllegalStateException("Interrupted while waiting for ngfx", e);
+      } catch (Exception e) {
+         LOGGER.error("Failed to launch with NSight Graphics: ", e);
+         throw new IllegalStateException("Failed to launch with NSight Graphics", e);
+      } finally {
+         if (argFile != null) {
+            try {
+               Files.deleteIfExists(argFile);
+            } catch (IOException e) {
+               LOGGER.error("Failed to delete temporary arg file: {}", argFile, e);
             }
-            filtered.add(cleaned);
-            continue;
-         }
-
-         filtered.add(arg);
-      }
-      return filtered;
-   }
-
-   private static Path writeArgFile(List<String> args) throws IOException {
-      Path argFile = Files.createTempFile("gfx-debuggers-", ".args");
-      try (BufferedWriter writer = Files.newBufferedWriter(argFile)) {
-         for (String arg : args) {
-            writer.write(quoteForArgFile(arg));
-            writer.newLine();
          }
       }
-      return argFile;
-   }
-
-   private static String quoteForArgFile(String arg) {
-      if (arg.isEmpty()) {
-         return "\"\"";
-      }
-      boolean needsQuoting = false;
-      for (int i = 0; i < arg.length(); i++) {
-         char c = arg.charAt(i);
-         if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '"' || c == '\'' || c == '\\' || c == '#') {
-            needsQuoting = true;
-            break;
-         }
-      }
-      if (!needsQuoting) {
-         return arg;
-      }
-      StringBuilder sb = new StringBuilder(arg.length() + 8);
-      sb.append('"');
-      for (int i = 0; i < arg.length(); i++) {
-         char c = arg.charAt(i);
-         if (c == '\\' || c == '"') {
-            sb.append('\\');
-         }
-         sb.append(c);
-      }
-      sb.append('"');
-      return sb.toString();
-   }
-
-   private static String stripTheseusFromArgsString(String argsString) {
-      argsString = argsString.replaceAll("-javaagent:[^\\s]+theseus\\.jar", "");
-      argsString = argsString.replaceAll("com\\.modrinth\\.theseus\\.MinecraftLaunch", "");
-      argsString = argsString.replaceAll("-Dmodrinth\\.internal\\.[^\\s]+", "");
-      argsString = argsString.replaceAll("[^\\s:;]*theseus\\.jar[;:]?", "");
-      argsString = argsString.replaceAll("::+", ":").replaceAll(";;+", ";");
-      argsString = argsString.replaceAll("(-cp\\s+|--classpath\\s+)[;:]", "$1");
-      argsString = argsString.replaceAll("  +", " ").trim();
-      return argsString;
    }
 }
