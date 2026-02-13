@@ -1,8 +1,8 @@
 # GFX Debuggers
 
 This version-agnostic Fabric mod allows you to inject NSight or Renderdoc into Minecraft, without having to fiddle around with launchers, args or environment variables. At launch, it will ask you which debugger you want to attach, and injection can be skipped by closing the dialog.
-Supports both Linux and Windows, and should work with any version of Minecraft[citation needed], as long as Fabric was ported to it.
-Officially supports 1.18.2+, with loader versions 0.15.0+. Compiled with JDK 17, so it may need that or newer to run but I didn't test mostly cause I'm lazy.
+Supports both Linux and Windows, and should work with any version of Minecraft, as long as Fabric was ported to it.
+Requires Fabric Loader 0.10.7+ and Java 17+.
 
 ### Usage
 
