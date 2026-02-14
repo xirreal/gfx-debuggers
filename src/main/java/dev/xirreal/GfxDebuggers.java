@@ -31,12 +31,12 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
    @Override
    public void onPreLaunch() {
       if (!IS_WINDOWS && !IS_LINUX) {
-         LOGGER.error("Unsupported OS: " + System.getProperty("os.name"));
+         LOGGER.error("Unsupported OS: {}", System.getProperty("os.name"));
          return;
       }
       String arch = System.getProperty("os.arch").toLowerCase();
       if (!arch.contains("64")) {
-         LOGGER.error("Unsupported architecture: " + arch);
+         LOGGER.error("Unsupported architecture: {}", arch);
          return;
       }
 
