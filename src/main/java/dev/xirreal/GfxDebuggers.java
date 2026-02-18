@@ -205,7 +205,7 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       if (activity == DebuggerSelection.GPU_TRACE) {
          cmd.add("--limit-to-frames");
          cmd.add("5");
-         cmd.add("--multi-pass-metrics");
+         //cmd.add("--multi-pass-metrics");
          cmd.add("--start-after-hotkey");
       }
 
