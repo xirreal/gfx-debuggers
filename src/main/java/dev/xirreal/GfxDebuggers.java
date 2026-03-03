@@ -16,7 +16,6 @@ import java.util.List;
 import javax.swing.*;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.entrypoint.PreLaunchEntrypoint;
-import org.lwjgl.util.tinyfd.TinyFileDialogs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,20 +71,36 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       String[] args = FabricLoader.getInstance().getLaunchArguments(false);
       fullArgs.addAll(Arrays.asList(args));
 
-      DebuggerSelection choice = DebuggerSelection.NONE;
+      boolean renderdocAvailable = IS_LINUX ? RenderdocLocator.findRenderdocSo() != null : RenderdocLocator.findRenderdocDll() != null;
+      Path ngfxPath = NgfxLocator.findNgfxExecutable();
+      boolean ngfxAvailable = ngfxPath != null;
+
+      if (!renderdocAvailable && !ngfxAvailable) {
+         LOGGER.warn("No graphics debuggers found. Skipping injection.");
+         return;
+      }
+
+      NgfxHelpInfo ngfxHelp = null;
+      if (ngfxAvailable) {
+         ngfxHelp = NgfxHelpParser.parse(ngfxPath);
+      }
+
+      DebuggerLaunchRequest request = null;
 
       String optionString = System.getProperty("debugger");
       if (optionString != null) {
-         if (optionString.equalsIgnoreCase("renderdoc")) {
-            choice = DebuggerSelection.RENDERDOC;
-         } else if (optionString.equalsIgnoreCase("nsight-gpu")) {
-            choice = DebuggerSelection.GPU_TRACE;
-         } else if (optionString.equalsIgnoreCase("nsight-frame")) {
-            choice = DebuggerSelection.FRAME_DEBUGGER;
+         if (optionString.equalsIgnoreCase("renderdoc") && renderdocAvailable) {
+            request = new DebuggerLaunchRequest(DebuggerSelection.RENDERDOC);
+         } else if (optionString.equalsIgnoreCase("nsight-gpu") && ngfxAvailable) {
+            String platform = ngfxHelp != null && ngfxHelp.platforms.size() == 1 ? ngfxHelp.platforms.get(0) : null;
+            request = new DebuggerLaunchRequest(DebuggerSelection.GPU_TRACE, platform, List.of());
+         } else if (optionString.equalsIgnoreCase("nsight-frame") && ngfxAvailable) {
+            String platform = ngfxHelp != null && ngfxHelp.platforms.size() == 1 ? ngfxHelp.platforms.get(0) : null;
+            request = new DebuggerLaunchRequest(DebuggerSelection.FRAME_DEBUGGER, platform, List.of());
          }
       }
 
-      if (choice == DebuggerSelection.NONE) {
+      if (request == null) {
          String originalHeadless = System.getProperty("java.awt.headless");
          String originalAA = System.getProperty("awt.useSystemAAFontSettings");
          String originalAAText = System.getProperty("swing.aatext");
@@ -95,8 +110,8 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
             System.setProperty("awt.useSystemAAFontSettings", "on");
             System.setProperty("swing.aatext", "true");
 
-            DebuggerPicker picker = new DebuggerPicker();
-            choice = picker.getSelection();
+            DebuggerPicker picker = new DebuggerPicker(renderdocAvailable, ngfxAvailable, ngfxHelp);
+            request = picker.getRequest();
          } catch (Exception e) {
             LOGGER.error("Could not open Swing window. Falling back to command line selection.", e);
          } finally {
@@ -118,13 +133,13 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
          }
       }
 
-      if (choice == DebuggerSelection.NONE) {
+      if (request == null || request.selection == DebuggerSelection.NONE) {
          LOGGER.warn("Injection skipped! No debugger will be injected and the game will launch normally.");
          return;
-      } else if (choice == DebuggerSelection.RENDERDOC) {
+      } else if (request.selection == DebuggerSelection.RENDERDOC) {
          launchRenderdoc(javaExecutable, fullArgs);
       } else {
-         launchViaNgfx(javaExecutable, fullArgs, choice);
+         launchViaNgfx(javaExecutable, fullArgs, request);
       }
    }
 
@@ -167,7 +182,8 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       }
    }
 
-   private void launchViaNgfx(String exe, List<String> args, DebuggerSelection activity) {
+   private void launchViaNgfx(String exe, List<String> args, DebuggerLaunchRequest request) {
+      DebuggerSelection activity = request.selection;
       LOGGER.info("Launching game via ngfx CLI for {}...", activity.name());
 
       Path ngfx = NgfxLocator.findNgfxExecutable();
@@ -188,6 +204,9 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       List<String> cmd = new ArrayList<>();
       cmd.add(ngfx.toAbsolutePath().toString());
       cmd.add("--activity=" + (activity == DebuggerSelection.GPU_TRACE ? "GPU Trace Profiler" : "Frame Debugger"));
+      if (request.platform != null) {
+         cmd.add("--platform=" + request.platform);
+      }
       cmd.add("--exe=" + exe);
 
       Path argFile = null;
@@ -202,12 +221,7 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       cmd.add("--dir=" + workDir);
       cmd.add("--env=" + NSIGHT_MARKER_ENV + "=1");
       cmd.add("--launch-detached");
-      if (activity == DebuggerSelection.GPU_TRACE) {
-         cmd.add("--limit-to-frames");
-         cmd.add("5");
-         //cmd.add("--multi-pass-metrics");
-         cmd.add("--start-after-hotkey");
-      }
+      cmd.addAll(request.extraArgs);
 
       LOGGER.info("Running ngfx with command: {}", String.join(" ", cmd));
 
