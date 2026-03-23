@@ -19,13 +19,14 @@ public final class NgfxHelpParser {
    public static NgfxHelpInfo parse(Path ngfxExe) {
       List<String> lines = runHelpAll(ngfxExe);
       if (lines == null) {
-         return new NgfxHelpInfo(List.of(), List.of());
+         return new NgfxHelpInfo(List.of(), List.of(), List.of());
       }
 
       List<String> platforms = parsePlatforms(lines);
+      List<String> activities = parseActivities(lines);
       List<NgfxOption> gpuTraceOptions = parseActivityOptions(lines, "GPU Trace Profiler activity options");
 
-      return new NgfxHelpInfo(platforms, gpuTraceOptions);
+      return new NgfxHelpInfo(platforms, activities, gpuTraceOptions);
    }
 
    private static List<String> runHelpAll(Path ngfxExe) {
@@ -82,6 +83,35 @@ public final class NgfxHelpParser {
       }
 
       return platforms;
+   }
+
+   private static List<String> parseActivities(List<String> lines) {
+      List<String> activities = new ArrayList<>();
+      boolean inActivityDesc = false;
+
+      for (int i = 0; i < lines.size(); i++) {
+         String line = lines.get(i);
+
+         if (line.stripLeading().startsWith("--activity ")) {
+            inActivityDesc = true;
+            continue;
+         }
+
+         if (inActivityDesc) {
+            String stripped = line.strip();
+            if (stripped.isEmpty()) {
+               continue;
+            }
+            if (line.startsWith("  --") || SECTION_HEADER.matcher(line).matches()) {
+               break;
+            }
+            if (!stripped.startsWith("Target activity") && !stripped.startsWith("of:")) {
+               activities.add(stripped);
+            }
+         }
+      }
+
+      return activities;
    }
 
    private static List<NgfxOption> parseActivityOptions(List<String> lines, String sectionName) {

@@ -139,7 +139,7 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       } else if (request.selection == DebuggerSelection.RENDERDOC) {
          launchRenderdoc(javaExecutable, fullArgs);
       } else {
-         launchViaNgfx(javaExecutable, fullArgs, request);
+         launchViaNgfx(javaExecutable, fullArgs, request, ngfxHelp);
       }
    }
 
@@ -182,7 +182,7 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       }
    }
 
-   private void launchViaNgfx(String exe, List<String> args, DebuggerLaunchRequest request) {
+   private void launchViaNgfx(String exe, List<String> args, DebuggerLaunchRequest request, NgfxHelpInfo ngfxHelp) {
       DebuggerSelection activity = request.selection;
       LOGGER.info("Launching game via ngfx CLI for {}...", activity.name());
 
@@ -201,9 +201,18 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
 
       String workDir = System.getProperty("user.dir");
 
+      String activityName;
+      if (activity == DebuggerSelection.GPU_TRACE) {
+         activityName = ngfxHelp != null ? ngfxHelp.findActivity("GPU Trace") : null;
+         if (activityName == null) activityName = "GPU Trace Profiler";
+      } else {
+         activityName = ngfxHelp != null ? ngfxHelp.findActivity("Frame Debugger") : null;
+         if (activityName == null) activityName = "Frame Debugger";
+      }
+
       List<String> cmd = new ArrayList<>();
       cmd.add(ngfx.toAbsolutePath().toString());
-      cmd.add("--activity=" + (activity == DebuggerSelection.GPU_TRACE ? "GPU Trace Profiler" : "Frame Debugger"));
+      cmd.add("--activity=" + activityName);
       if (request.platform != null) {
          cmd.add("--platform=" + request.platform);
       }
