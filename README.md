@@ -14,13 +14,17 @@ Requires Fabric Loader 0.14.0+ and Java 17+.
 
 ### Advanced usage
 
-You can skip the dialog (useful for dev environments) by setting the `debugging` flag to the debugger you want.
+You can skip the dialog (useful for dev environments) by setting the `debugger` system property.
 Allowed options are:
 ```shell
--Ddebugger=nsight-frame
--Ddebugger=nsight-gpu
--Ddebugger=renderdoc
+-Ddebugger=nsight-frame   # Launch with NSight Frame Debugger
+-Ddebugger=nsight-gpu     # Launch with NSight GPU Trace Profiler
+-Ddebugger=renderdoc      # Launch with RenderDoc
+-Ddebugger=last           # Re-use the last picked debugger and options
+-Ddebugger=skip           # Skip injection entirely, launch the game normally
 ```
+
+The `last` option reads the saved configuration from the picker dialog (stored in `.minecraft/config/gfx-debuggers.properties`), including the selected debugger, platform, and any GPU Trace options. If no saved config exists, it falls back to showing the picker dialog.
 
 ### NSight Graphics configuration
 

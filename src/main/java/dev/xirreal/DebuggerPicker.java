@@ -56,7 +56,7 @@ public class DebuggerPicker extends JFrame {
       return FabricLoader.getInstance().getConfigDir().resolve("gfx-debuggers.properties");
    }
 
-   private static Properties loadConfig() {
+   static Properties loadConfig() {
       Properties props = new Properties();
       Path path = getConfigPath();
       if (Files.exists(path)) {

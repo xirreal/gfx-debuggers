@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Properties;
 import javax.swing.*;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.entrypoint.PreLaunchEntrypoint;
@@ -89,7 +90,15 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
 
       String optionString = System.getProperty("debugger");
       if (optionString != null) {
-         if (optionString.equalsIgnoreCase("renderdoc") && renderdocAvailable) {
+         if (optionString.equalsIgnoreCase("skip") || optionString.equalsIgnoreCase("none")) {
+            LOGGER.info("Debugger injection skipped via -Ddebugger=skip");
+            return;
+         } else if (optionString.equalsIgnoreCase("last")) {
+            request = buildRequestFromLastConfig(renderdocAvailable, ngfxAvailable, ngfxHelp);
+            if (request == null) {
+               LOGGER.warn("No saved debugger config found. Falling back to picker dialog.");
+            }
+         } else if (optionString.equalsIgnoreCase("renderdoc") && renderdocAvailable) {
             request = new DebuggerLaunchRequest(DebuggerSelection.RENDERDOC);
          } else if (optionString.equalsIgnoreCase("nsight-gpu") && ngfxAvailable) {
             String platform = ngfxHelp != null && ngfxHelp.platforms.size() == 1 ? ngfxHelp.platforms.get(0) : null;
@@ -141,6 +150,52 @@ public class GfxDebuggers implements PreLaunchEntrypoint {
       } else {
          launchViaNgfx(javaExecutable, fullArgs, request, ngfxHelp);
       }
+   }
+
+   private static DebuggerLaunchRequest buildRequestFromLastConfig(boolean renderdocAvailable, boolean ngfxAvailable, NgfxHelpInfo ngfxHelp) {
+      Properties config = DebuggerPicker.loadConfig();
+      String debuggerName = config.getProperty("debugger");
+      if (debuggerName == null) {
+         return null;
+      }
+
+      DebuggerSelection selection;
+      try {
+         selection = DebuggerSelection.valueOf(debuggerName);
+      } catch (IllegalArgumentException e) {
+         LOGGER.warn("Unknown saved debugger selection: {}", debuggerName);
+         return null;
+      }
+
+      if (selection == DebuggerSelection.RENDERDOC && !renderdocAvailable) {
+         LOGGER.warn("Saved config uses RenderDoc but it is not available.");
+         return null;
+      }
+      if ((selection == DebuggerSelection.GPU_TRACE || selection == DebuggerSelection.FRAME_DEBUGGER) && !ngfxAvailable) {
+         LOGGER.warn("Saved config uses NSight but ngfx is not available.");
+         return null;
+      }
+
+      String platform = config.getProperty("platform");
+
+      List<String> extraArgs = new ArrayList<>();
+      for (String key : config.stringPropertyNames()) {
+         if (!key.startsWith("opt.")) continue;
+         String flag = key.substring(4);
+         String value = config.getProperty(key);
+
+         if ("true".equals(value)) {
+            extraArgs.add(flag);
+         } else if ("false".equals(value)) {
+            // skip disabled flags
+         } else if (value != null && !value.isEmpty()) {
+            extraArgs.add(flag);
+            extraArgs.add(value);
+         }
+      }
+
+      LOGGER.info("Using saved debugger config: {} (platform={})", selection.name(), platform);
+      return new DebuggerLaunchRequest(selection, platform, extraArgs);
    }
 
    private void launchRenderdoc(String javaExecutable, List<String> args) {
